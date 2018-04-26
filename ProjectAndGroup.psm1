@@ -2,6 +2,7 @@
 # FileName : ProjectAndGroup.psm1
 # Data     : 02/09/2018
 # Purpose  : this module will create a project and groups for a project
+#           This script is for demonstration only not to be used as production code
 #
 
 function CreateVSTSProject () {
@@ -30,7 +31,7 @@ function CreateVSTSProject () {
    
     try {
         # check if project already exists
-        $projectUri = "https://" + $userParams.VSTSMasterAcct + ".visualstudio.com/defaultcollection/_apis/projects?api-version=1.0"
+        $projectUri = "https://" + $userParams.VSTSMasterAcct + ".visualstudio.com/defaultcollection/_apis/projects?api-version=2.0-preview"
         $currProjects = Invoke-RestMethod -Uri $projectUri -Method Get -ContentType "application/json" -Headers $authorization 
 
         $fnd = $currProjects.value | Where-Object {$_.name -eq $name}
@@ -40,7 +41,7 @@ function CreateVSTSProject () {
         } 
         
         # project does not exist, create new one
-        $projectUri = "https://" + $userParams.VSTSMasterAcct + ".visualstudio.com/defaultcollection/_apis/projects?api-version=1.0"
+        $projectUri = "https://" + $userParams.VSTSMasterAcct + ".visualstudio.com/defaultcollection/_apis/projects?api-version=2.0-preview"
         $return = Invoke-RestMethod -Uri $projectUri -Method Post -ContentType "application/json" -Headers $authorization -Body $valJson
         return $return
     }
@@ -92,10 +93,8 @@ function AddVSTSGroupAndUsers() {
         $userParams 
     )
 
-     
     # Base64-encodes the Personal Access Token (PAT) appropriately
     $authorization = GetVSTSCredential -Token $userParams.PAT -userEmail $userParams.userEmail
-
 
    try {
 
@@ -131,7 +130,6 @@ function AddVSTSGroupAndUsers() {
             $tmJson = ConvertTo-Json -InputObject $tmData
 
             # add / group 
-             
             $projectUri = "https://" + $userParams.VSTSMasterAcct + ".vssps.visualstudio.com/_apis/graph/groups?api-version=4.0-preview"
             $fnd = Invoke-RestMethod -Uri $projectUri -Method Post -Headers $authorization  -ContentType "application/json" -Body $tmJson       
     
@@ -149,10 +147,7 @@ function AddVSTSGroupAndUsers() {
                     $grp =  Invoke-RestMethod -Uri $adduserUri -Method Post -Headers $authorization -ContentType "application/json" -Body $json
                 }
             } 
-
-
         }
-
     }
     catch {
         $ErrorMessage = $_.Exception.Message
@@ -269,32 +264,41 @@ function CreateVSTSGitRepo() {
     Param(
         [Parameter(Mandatory = $true)]
         $userParams
-
     )
    
 	# Base64-encodes the Personal Access Token (PAT) appropriately
     $authorization = GetVSTSCredential -Token $userParams.PAT -userEmail $userParams.userEmail
 
-    # create json body for request
-    $repo = @{name = $userParams.RepositoryName
-        project = @{id = $projId}
+    # get project id
+    $projectUri = "https://" + $userParams.VSTSMasterAcct + ".VisualStudio.com/DefaultCollection/_apis/projects/" + $userParams.ProjectName +"?api-version=1.0"
+    $return = Invoke-RestMethod -Uri $projectUri -Method Get -ContentType "application/json" -Headers $authorization 
+
+    IF ([string]::IsNullOrEmpty($return)) {
+        $projId = $return.id
+
+        # create json body for request
+        $repo = @{name = $userParams.RepositoryName
+            project = @{id = $projId}
+        }
+        $tmJson = ConvertTo-Json -InputObject $repo
+
+        # REST call to create Git Repo
+        $projectUri = "https://" + $userParams.VSTSMasterAcct + ".VisualStudio.com/DefaultCollection/_apis/git/repositories?api-version=1.0"
+
+        try {
+
+            $return = Invoke-RestMethod -Uri $projectUri -Method Post -ContentType "application/json" -Headers $authorization -Body $tmJson
+            return $return
+        }
+        catch {
+            $ErrorMessage = $_.Exception.Message
+            $FailedItem = $_.Exception.ItemName
+            Write-Host "Error : " + $ErrorMessage + " iTEM : " + $FailedItem
+        }
     }
-    $tmJson = ConvertTo-Json -InputObject $repo
-
-    # REST call to create Git Repo
-    $projectUri = "https://" + $userParams.VSTSMasterAcct + ".VisualStudio.com/DefaultCollection/_apis/git/repositories?api-version=1.0"
-
-    try {
-
-        $return = Invoke-RestMethod -Uri $projectUri -Method Post -ContentType "application/json" -Headers $authorization -Body $tmJson
-        Write-Host $return
+    else {
+        return $return
     }
-    catch {
-        $ErrorMessage = $_.Exception.Message
-        $FailedItem = $_.Exception.ItemName
-        Write-Host "Error : " + $ErrorMessage + " iTEM : " + $FailedItem
-    }
-
 }
 
 function AddUsersToGroup() {
@@ -325,7 +329,7 @@ function GetVSTSProcesses() {
     try {
         $projectUri = "https://" + $userParams.VSTSMasterAcct + ".visualstudio.com/DefaultCollection/_apis/process/processes?api-version=1.0"
         $returnValue = Invoke-RestMethod -Uri $projectUri -Method Get -ContentType "application/json" -Headers $authorization
-        $id = ($returnValue.value).Where( {$_.name -match $userParams.ProcessType})
+        $id = ($returnValue.value).Where( {$_.name -eq $userParams.ProcessType})
         return $id.id
     }
     catch {
@@ -433,7 +437,7 @@ function Add-TfsGroupMemberToTeamProjectGroup {
 # this function will create the tfssecurity.exe command to change permissions for a given group and area
 #
 ##############################
-function GetSecurityCMD()
+function GetSecurityCMD_old()
 {
     Param(
         [Parameter(Mandatory = $true)]
@@ -483,8 +487,8 @@ function GetSecurityCMD()
     # $allPrjects = Invoke-RestMethod -Uri $projectUri -Method Get -Headers $authorization  -ContentType "application/json"  
     # $fnd = $allPrjects.value | Where-Object {$_.name -eq $userParams.ProjectName}
 
-    $pth = "C:\" + "'Program Files (x86)\Microsoft Visual Studio 14.0'" + "\Common7\IDE\TFSSecurity.exe"
-    $cmd = $pth
+    $pth = "C:\Program Files (x86)\Microsoft Visual Studio 14.0\Common7\IDE\TFSSecurity.exe "
+    $cmd = ""
     switch ($area) 
     {
         "Project" { $cmd += " /a+ Project " +  '"' + $tkn + '"'  } 
@@ -495,14 +499,211 @@ function GetSecurityCMD()
     $cmd += " " +  $actionType 
    
     # add group to secure
-    $cmd +=  " n:" + '''[' + $userParams.ProjectName + "]\"     +  $groupName + '''' 
+    $cmd +=  " n:" + $([char]34) + "[" + $userParams.ProjectName + "]\" + $groupName + $([char]34) 
    
     # add permission  and collection
     $cmd += " $permission /collection:https://" + $userParams.VSTSMasterAcct + ".visualstudio.com"
     Write-Host $cmd
 
-    Invoke-Expression $cmd 
+    Start-Process $pth -ArgumentList $cmd -NoNewWindow
+    
+}
 
-    Invoke-Elevated $cmd
+function Set-BuildDefinition()
+{
+    Param(
+        [Parameter(Mandatory = $true)]
+        $userParams,
+        $repo
+    )
 
+    # Base64-encodes the Personal Access Token (PAT) appropriately
+    $authorization = GetVSTSCredential -Token $userParams.PAT -userEmail $userParams.userEmail
+   
+    # find queue
+    $queueCreateUrl = "https://" + $userParams.VSTSMasterAcct + ".visualstudio.com/DefaultCollection/" + $userParams.ProjectName + "/_apis/distributedtask/queues?api-version=3.0-preview.1"
+    $createBuild = Invoke-RestMethod -Uri $queueCreateUrl -Method Get -Headers $authorization  -ContentType "application/json"  
+    $prjid = ""
+
+    # if not found create it
+    IF ($createBuild.count -eq 0) {
+        
+        $qDef = @{
+            name = "My Queue";
+            pool = @{ id = 1};
+        }
+        $qdefJson = ConvertTo-Json -InputObject $qDef
+        $createqueue = Invoke-RestMethod -Uri $queueCreateUrl -Method Post -Headers $authorization  -ContentType "application/json"  -Body $qdefJson
+        $prjid = $createqueue.id
+    }
+    else {
+        $queueId  = ($createBuild.value | Where-Object {$_.name -eq $userParams.AgentQueue}).id
+    }
+    
+
+    # $buildDef = @{
+    #     name = $userParams.BuildName;
+    #     type = "build";
+    #     id = 0;
+    #     quality = "definition";
+    #     queue =  @{ id =  $prjid };
+    #     build =  @(@{ 
+    #         enabled = "true";   
+    #         continueOnError = "false";
+    #         displayName = "Build solution **\\*.sln";
+    #         task = @{ id = (New-Guid).Guid ; versionSpec = "*" };
+            
+    #         inputs =  @{
+    #             solution = "**\\*.sln";
+    #             msbuildArgs = "";
+    #             platform = "$" + "(platform)";
+    #             configuration = "$" + "(config)";
+    #             clean = "false";
+    #             restoreNugetPackages = "true";
+    #             vsLocationMethod = "version";
+    #             vsVersion = "latest";
+    #             vsLocation = "";
+    #             msbuildLocationMethod = "version";
+    #             msbuildVersion = "latest";
+    #             msbuildArchitecture = "x86";
+    #             msbuildLocation = "";
+    #             logProjectEvents = "true"}; 
+    #         };
+    #         @{ 
+    #         enabled = "true";
+    #         continueOnError = "false";
+    #         displayName = "Test Assemblies **\*test*.dll;-:**\obj\**";
+    #         task = @{ id = New-Guid  ; versionSpec = "*" };
+
+    #         inputs =  @{
+    #             testAssembly = "**\*test*.dll;-:**\obj\**";
+    #             testFiltercriteria = "";
+    #             runSettingsFile = "";
+    #             codeCoverageEnabled = "true";
+    #             otherConsoleOptions = "";
+    #             vsTestVersion = "14.0";
+    #             pathtoCustomTestAdapters = ""};
+    #         }                       
+    #     )
+    #     repository = @{
+    #         id = $repo.id;
+    #         type = "tfsgit";
+    #         name =  $userParams.RepositoryName;
+    #         localPath = "$" + "(sys.sourceFolder)/MyGitProject";
+    #         defaultBranch = "/master";
+    #         url = "https://" + $userParams.VSTSMasterAcct + ".visualstudio.com/" + $userParams.ProjectName + "/_git/" + $userParams.RepositoryName;
+    #         clean = "false";
+    #     }
+    #     options = @(@{
+    #         enabled = "true";
+    #         definition = @{ id = "1"};
+    #         };
+    #         @{
+    #             inputs = @{ parallel = "false"; multipliers = "[\config\platform\]";}
+    #         }
+    #         );
+    #     variables = @{
+    #         forceClean = @{ value = "false"; allowOverride = "true";};
+    #         config = @{ value = "debug, release"; allowOverride = "true";};
+    #         platform = @{value = "any cpu"; allowOverride = "true";};
+    #     }
+    #     triggers = @();
+    #     comments = "My first build definition";
+    # }
+
+    $buildTasks =  @(@{ 
+        enabled = "true";
+        continueOnError = "false";
+        displayName = "Build solution **\\*.sln";
+        task = @{ id = (New-Guid).Guid ; versionSpec = "*" };
+        
+        inputs =  @{
+            solution = "**\\*.sln";
+            msbuildArgs = "";
+            platform = "$" + "(platform)";
+            configuration = "$" + "(config)";
+            clean = "false";
+            restoreNugetPackages = "true";
+            vsLocationMethod = "version";
+            vsVersion = "latest";
+            vsLocation = "";
+            msbuildLocationMethod = "version";
+            msbuildVersion = "latest";
+            msbuildArchitecture = "x86";
+            msbuildLocation = "";
+            logProjectEvents = "true"}; 
+        };
+        @{ 
+        enabled = "true";
+        continueOnError = "false";
+        displayName = "Test Assemblies **\*test*.dll;-:**\obj\**";
+        task = @{ id = New-Guid  ; versionSpec = "*" };
+
+        inputs =  @{
+            testAssembly = "**\*test*.dll;-:**\obj\**";
+            testFiltercriteria = "";
+            runSettingsFile = "";
+            codeCoverageEnabled = "true";
+            otherConsoleOptions = "";
+            vsTestVersion = "14.0";
+            pathtoCustomTestAdapters = ""};
+        }                       
+    )
+
+    $buildDefinition = @{
+        "name"       = $userParams.RepositoryName
+        "type"       = "build"
+        "quality"    = "definition"
+        "queue"      = @{
+            "id" =  $queueId
+        }
+        "process"      = $BuildTasks
+        "repository" = @{
+            "id"            = $repo.id
+            "type"          = "tfsgit"
+            "name"          =  $userParams.RepositoryName
+            "defaultBranch" = "refs/heads/master"
+            "url"           = "https://" + $userParams.VSTSMasterAcct + ".visualstudio.com/" + $userParams.ProjectName + "/_git/" + $userParams.RepositoryName
+            "clean"         = $false
+        }
+        "options"    = @(
+            @{
+                "enabled"    = $true
+                "definition" = @{
+                    "id" = (New-Guid).Guid
+                }
+                "inputs"     = @{
+                    "parallel"  = $false
+                    multipliers = '["config","platform"]'
+                }
+            }
+        )
+        "variables"  = @{
+            "system.debug" = @{
+                "value"         = $false
+                "allowOverride" = $true
+            }
+            "BuildConfiguration"     = @{
+                "value"         = "release"
+                "allowOverride" = $true
+            }
+            "BuildPlatform"   = @{
+                "value"         = "any cpu"
+                "allowOverride" = $true
+            }
+        }
+        "triggers"   = @()
+    }
+
+    $buildjson = ConvertTo-Json -InputObject $buildDefinition -Depth 42
+    Write-Host $buildjson
+
+    # create build definition
+    $buildUri = "https://" + $userParams.VSTSMasterAcct + ".visualstudio.com/DefaultCollection/" + $userParams.ProjectName + "/_apis/build/definitions?api-version=4.1-preview"
+    $buildDef = Invoke-RestMethod -Uri $buildUri -Method Post -Headers $authorization  -ContentType "application/json"  -Body $buildjson
+   
+    Write-Host $buildDef
+
+
+   
 }
